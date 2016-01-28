@@ -78,6 +78,9 @@ T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
     std::size_t endColumn = k - endRow;
     
     for (i = startRow, j = startColumn; j < endColumn+1; --i, ++j) {
+      assert(bLen >= j);
+      assert(aLen >= i);
+      
       T substitutionCost = a[i-1] == b[j-1] ? 0 : 1;
       diag[i] = std::min({
         diag2[i-1]+1,
