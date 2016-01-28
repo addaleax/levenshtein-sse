@@ -65,19 +65,22 @@ T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
   std::size_t i, j, k;
   
   k = 0;
-  for (k = 0; ; ++k) {
+  for (k = 1; ; ++k) {
     if (k % 1024 == 0) {
       std::cerr << "k = " << k << " (" << (k * 100.0 / double(aLen + bLen)) << " %)" << std::endl;
     }
     
     assert(k <= aLen + bLen);
     
-    std::size_t startColumn = k > aLen ? k - aLen : 1;
-    std::size_t endRow = k > bLen ? k - bLen : 1;
-    std::size_t startRow = k - startColumn;
-    std::size_t endColumn = k - endRow;
+    std::size_t startRow = k > bLen ? k - bLen : 1;
+    std::size_t endRow = k > aLen ? aLen : k - 1;
     
-    for (i = startRow, j = startColumn; j < endColumn+1; --i, ++j) {
+    assert(endRow >= startRow || k == 1);
+    
+    for (i = endRow; i >= startRow; --i) {
+      assert(i < k);
+      j = k - i;
+      
       assert(bLen >= j);
       assert(aLen >= i);
       
@@ -96,7 +99,6 @@ T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
     }
     
     if (k == aLen + bLen) {
-      assert(endColumn == startColumn);
       assert(startRow == endRow);
       return diag[startRow];
     }
@@ -135,16 +137,17 @@ void levenshteinFileExpect(const std::string& a, const std::string& b, uint32_t 
 }
 
 int main() {
+  levenshteinStringExpect("Saturday", "Sunday", 3);
+  levenshteinStringExpect("Sitting", "Kittens", 3);
+  levenshteinStringExpect("Kittens", "Sitting", 3);
+  levenshteinStringExpect("Kitten", "Sitting", 3);
   levenshteinStringExpect("Hallo, Welt!", "Hello, World!", 4);
   levenshteinStringExpect("", "", 0);
   levenshteinStringExpect("A", "", 1);
   levenshteinStringExpect("A", "A", 0);
   levenshteinStringExpect("A", "Sitting", 7);
   levenshteinStringExpect("", "Sitting", 7);
-  levenshteinStringExpect("Kitten", "Sitting", 3);
-  levenshteinStringExpect("Kittens", "Sitting", 3);
   levenshteinStringExpect("Sitting", "Sitting", 0);
-  levenshteinStringExpect("Saturday", "Sunday", 3);
   levenshteinFileExpect("/usr/bin/xz", "/usr/local/bin/xz", 62962);
   return 0;
 }
