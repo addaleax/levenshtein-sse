@@ -72,20 +72,8 @@ T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
     
     assert(k <= aLen + bLen);
     
-    std::size_t startColumn = k > aLen ? k - aLen : 0;
-    std::size_t endRow = k > bLen ? k - bLen : 0;
-    int setFirstEntry = 0, setLastEntry = 0;
-    
-    if (startColumn == 0) {
-      setLastEntry = 1;
-      ++startColumn;
-    }
-    
-    if (endRow == 0) {
-      setFirstEntry = 1;
-      ++endRow;
-    }
-    
+    std::size_t startColumn = k > aLen ? k - aLen : 1;
+    std::size_t endRow = k > bLen ? k - bLen : 1;
     std::size_t startRow = k - startColumn;
     std::size_t endColumn = k - endRow;
     
@@ -98,11 +86,9 @@ T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
       });
     }
     
-    if (setFirstEntry) {
-      diag[0] = k;
-    }
+    diag[0] = k;
     
-    if (setLastEntry) {
+    if (k <= aLen) {
       diag[k] = k;
     }
     
