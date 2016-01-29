@@ -41,15 +41,61 @@ std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd
     return bLen - (std::find(b, bEnd, *a) == bEnd ? 0 : 1);
   }
   
-  if (aLen + bLen <= std::numeric_limits<std::uint8_t>::max())
-    return levenshteinDiagonal<std::uint8_t>(a, aEnd, b, bEnd);
-  if (aLen + bLen <= std::numeric_limits<std::uint16_t>::max())
-    return levenshteinDiagonal<std::uint16_t>(a, aEnd, b, bEnd);
   if (aLen + bLen <= std::numeric_limits<std::uint32_t>::max())
     return levenshteinDiagonal<std::uint32_t>(a, aEnd, b, bEnd);
   
   return levenshteinDiagonal<std::size_t>(a, aEnd, b, bEnd);
 }
+
+template<typename Vec1, typename Vec2, typename Iterator1, typename Iterator2>
+struct LevenshteinIteration {
+static inline void perform(const Iterator1& a, const Iterator2& b,
+  std::size_t& i, std::size_t j, Vec1& diag, const Vec2& diag2)
+{
+  int substitutionCost = a[i-1] == b[j-1] ? 0 : 1;
+  diag[i] = std::min({
+    diag2[i-1]+1,
+    diag2[i]+1,
+    diag[i-1] + substitutionCost
+  });
+  --i;
+}
+};
+
+template<typename Alloc1, typename Alloc2>
+struct LevenshteinIteration<std::vector<std::uint32_t, Alloc1>, std::vector<uint32_t, Alloc2>, const char*, const char*> {
+static inline void perform(const char* a, const char* b,
+  std::size_t& i, std::size_t j, std::vector<std::uint32_t, Alloc1>& diag, const std::vector<std::uint32_t, Alloc2>& diag2)
+{
+  int substitutionCost = a[i-1] == b[j-1] ? 0 : 1;
+  diag[i] = std::min({
+    diag2[i-1]+1,
+    diag2[i]+1,
+    diag[i-1] + substitutionCost
+  });
+  --i;
+}
+};
+
+template<typename Vec1, typename Vec2>
+struct LevenshteinIteration<Vec1, Vec2, std::string::iterator, std::string::iterator> {
+static inline void perform(const std::string::iterator& a, const std::string::iterator& b,
+  std::size_t& i, std::size_t j, Vec1& diag, const Vec2& diag2)
+{
+  LevenshteinIteration<Vec1, Vec2, const char*, const char*>
+    ::perform(&*a, &*b, i, j, diag, diag2);
+}
+};
+
+template<typename Vec1, typename Vec2>
+struct LevenshteinIteration<Vec1, Vec2, std::string::const_iterator, std::string::const_iterator> {
+static inline void perform(const std::string::const_iterator& a, const std::string::const_iterator& b,
+  std::size_t& i, std::size_t j, Vec1& diag, const Vec2& diag2)
+{
+  LevenshteinIteration<Vec1, Vec2, const char*, const char*>
+    ::perform(&*a, &*b, i, j, diag, diag2);
+}
+};
 
 template<typename T, typename Iterator1, typename Iterator2>
 T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) {
@@ -77,19 +123,15 @@ T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
     
     assert(endRow >= startRow || k == 1);
     
-    for (i = endRow; i >= startRow; --i) {
+    for (i = endRow; i >= startRow; ) {
       assert(i < k);
       j = k - i;
       
       assert(bLen >= j);
       assert(aLen >= i);
       
-      T substitutionCost = a[i-1] == b[j-1] ? 0 : 1;
-      diag[i] = std::min({
-        diag2[i-1]+1,
-        diag2[i]+1,
-        diag[i-1] + substitutionCost
-      });
+      LevenshteinIteration<std::vector<T>, std::vector<T>, Iterator1, Iterator2>
+        ::perform(a, b, i, j, diag, diag2);
     }
     
     diag[0] = k;
