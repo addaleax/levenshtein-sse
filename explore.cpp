@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cassert>
 
+namespace levenshteinSSE {
 template<typename T>
 std::ostream& operator <<(std::ostream& os, const std::vector<T>& vec) {
   os << '[';
@@ -156,12 +157,13 @@ template<typename String>
 std::size_t levenshteinString(const String& a, const String& b) {
   return levenshtein(std::cbegin(a), std::cend(a), std::cbegin(b), std::cend(b));
 }
+}
 
 /* Testing */
 #include "FileMappedString.hpp"
 
 void levenshteinStringExpect(const std::string& a, const std::string& b, uint32_t expected) {
-  auto distance = levenshteinString(a, b);
+  auto distance = levenshteinSSE::levenshteinString(a, b);
   
   std::cerr << "A = " << a << "\nB = " << b <<
       "\ndistance = " << distance << ", expected = " << expected << "\n";
@@ -170,7 +172,7 @@ void levenshteinStringExpect(const std::string& a, const std::string& b, uint32_
 }
 
 void levenshteinFileExpect(const std::string& a, const std::string& b, uint32_t expected) {
-  auto distance = levenshteinString(FileMappedString(a), FileMappedString(b));
+  auto distance = levenshteinSSE::levenshteinString(FileMappedString(a), FileMappedString(b));
   
   std::cerr << "A = " << a << "\nB = " << b <<
       "\ndistance = " << distance << ", expected = " << expected << "\n";
