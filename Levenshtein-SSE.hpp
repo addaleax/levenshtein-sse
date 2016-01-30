@@ -6,6 +6,12 @@
 #include <iterator>
 #include <cstdint>
 #include <cassert>
+#ifdef __SSSE3__
+#include <tmmintrin.h>
+#endif
+#ifdef __SSE4_1__
+#include <smmintrin.h>
+#endif
 
 #include "AlignmentAllocator.hpp"
 
