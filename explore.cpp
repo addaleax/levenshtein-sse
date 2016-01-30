@@ -6,6 +6,10 @@
 
 #include "AlignmentAllocator.hpp"
 
+#ifndef __SSSE3__
+#warning "No SIMD extensions enabled"
+#endif
+
 namespace levenshteinSSE {
 template<typename T, typename Alloc>
 std::ostream& operator <<(std::ostream& os, const std::vector<T, Alloc>& vec) {
@@ -53,7 +57,7 @@ std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd
 template<typename Vec1, typename Vec2, typename Iterator1, typename Iterator2>
 struct LevenshteinIterationBase {
 static inline void perform(const Iterator1& a, const Iterator2& b,
-  std::size_t& i, std::size_t j, size_t bLen, Vec1& diag, const Vec2& diag2)
+  std::size_t& i, std::size_t j, std::size_t bLen, Vec1& diag, const Vec2& diag2)
 {
   int substitutionCost = a[i-1] == b[j-1] ? 0 : 1;
   diag[i] = std::min({
@@ -69,22 +73,52 @@ template<typename Vec1, typename Vec2, typename Iterator1, typename Iterator2>
 struct LevenshteinIteration : LevenshteinIterationBase<Vec1, Vec2, Iterator1, Iterator2> {
 };
 
+#ifdef __SSSE3__
 constexpr std::size_t alignment = 16;
+#else
+constexpr std::size_t alignment = 1;
+#endif
 
 template<typename Alloc1, typename Alloc2>
 struct LevenshteinIteration<std::vector<std::uint32_t, Alloc1>, std::vector<uint32_t, Alloc2>, const char*, const char*> {
-__attribute__((optimize("unroll-loops")))
+
+/* Decide which implementation is acceptable */
 static inline void perform(const char* a, const char* b,
   std::size_t& i, std::size_t j, std::size_t bLen,
   std::vector<std::uint32_t, Alloc1>& diag,
   const std::vector<std::uint32_t, Alloc2>& diag2)
 {
-  if (i < 16 || bLen - j < 16) {
-    LevenshteinIterationBase<std::vector<std::uint32_t, Alloc1>, std::vector<uint32_t, Alloc2>, const char*, const char*>
-      ::perform(a, b, i, j, bLen, diag, diag2);
+#ifdef __SSSE3__
+  if (i >= 16 && bLen - j >= 16) {
+    performSSE(a, b, i, j, bLen, diag.data(), diag2.data());
     return;
   }
+#endif
   
+  LevenshteinIterationBase<std::vector<std::uint32_t, Alloc1>, std::vector<uint32_t, Alloc2>, const char*, const char*>
+    ::perform(a, b, i, j, bLen, diag, diag2);
+}
+
+/* SSE */
+
+#ifdef __SSSE3__
+#ifndef __SSE4_1__
+// we need a replacement for _mm_min_epi32
+#define _mm_min_epi32 FLST__mm_min_epi32
+
+static inline
+__m128i _mm_min_epi32 (__m128i a, __m128i b) {
+  __m128i compare = _mm_cmpgt_epi32(a, b);
+  __m128i aIsSmaller = _mm_andnot_si128(a, compare);
+  __m128i bIsSmaller = _mm_and_si128   (b, compare);
+  return _mm_or_si128(aIsSmaller, bIsSmaller);
+}
+#endif // __SSE4_1__
+
+static inline void performSSE(const char* a, const char* b,
+  std::size_t& i, std::size_t j, std::size_t bLen,
+  std::uint32_t* diag, const std::uint32_t* diag2)
+{
   const __m128i one128_epi8 = _mm_set1_epi8(1);
   const __m128i one128_epi32 = _mm_set1_epi32(1);
   const __m128i reversedIdentity128_epi8 = _mm_setr_epi8(
@@ -100,7 +134,7 @@ static inline void perform(const char* a, const char* b,
     15, 14, 13, 12
   );
 
-  // load everyone into registers
+  // load everyone into registers (some more info of variable layout below)
   std::size_t k;
   __m128i zero = _mm_setzero_si128();
   __m128i a_ = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&a[i-16]));
@@ -245,6 +279,7 @@ static inline void perform(const char* a, const char* b,
   
   i -= 16;
 }
+#endif // __SSSE3__
 };
 
 template<typename Vec1, typename Vec2>
