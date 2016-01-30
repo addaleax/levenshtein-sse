@@ -4,4 +4,4 @@ all: test/test
 
 test/test: test/test.cpp Levenshtein-SSE.hpp AlignmentAllocator.hpp test/FileMappedString.hpp test/ErrnoException.hpp
 	$(CXX) $(CXXFLAGS) $(CLFAGS) -I. -o $@ test/test.cpp
-	test/test
+	time test/test

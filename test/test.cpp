@@ -8,48 +8,51 @@
 #include <iostream>
 
 template<typename CharT>
-void levenshteinStringExpect(const std::string& a, const std::string& b, uint32_t expected) {
+void levenshteinStringExpect(const std::string& a, const std::string& b, std::uint32_t expected) {
   std::basic_string<CharT> a_(std::begin(a), std::end(a));
   std::basic_string<CharT> b_(std::begin(b), std::end(b));
   auto start = std::chrono::high_resolution_clock::now();
   auto distance = levenshteinSSE::levenshteinContainer(a_, b_);
   auto end = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff = end-start;
+  auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
 
   std::cerr << "A = " << a << "\nB = " << b << "\nT = " << typeid(CharT).name()
             << "\ndistance = " << distance << ", expected = " << expected
-            << "\nTime: " << diff.count() << " s\n";
+            << "\nTime: " << diff.count() << " ms\n";
   
-  assert (distance == expected);
+  if (distance != expected)
+    std::exit(1);
 }
 
 template<typename Container>
-void levenshteinContainerExpect(const Container& a, const Container& b, uint32_t expected) {
+void levenshteinContainerExpect(const Container& a, const Container& b, std::uint32_t expected) {
   auto start = std::chrono::high_resolution_clock::now();
   auto distance = levenshteinSSE::levenshteinContainer(a, b);
   auto end = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff = end-start;
+  auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
 
   std::cerr << "a.size() = " << a.size() << "\nb.size() = " << b.size()
             << "\nContainer = " << typeid(Container).name()
             << "\ndistance = " << distance << ", expected = " << expected
-            << "\nTime: " << diff.count() << " s\n";
+            << "\nTime: " << diff.count() << " ms\n";
   
-  assert (distance == expected);
+  if (distance != expected)
+    std::exit(1);
 }
 
 template<typename CharT>
-void levenshteinFileExpect(const std::string& a, const std::string& b, uint32_t expected) {
+void levenshteinFileExpect(const std::string& a, const std::string& b, std::uint32_t expected) {
   auto start = std::chrono::high_resolution_clock::now();
   auto distance = levenshteinSSE::levenshteinContainer(FileMappedString<CharT>(a), FileMappedString<CharT>(b));
   auto end = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff = end-start;
+  auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
   
   std::cerr << "A = " << a << "\nB = " << b << "\nT = " << typeid(CharT).name()
             << "\ndistance = " << distance << ", expected = " << expected
-            << "\nTime: " << diff.count() << " s\n";
+            << "\nTime: " << diff.count() << " ms\n";
   
-  assert (distance == expected);
+  if (distance != expected)
+    std::exit(1);
 }
 
 int main() {

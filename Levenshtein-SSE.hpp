@@ -175,7 +175,7 @@ static inline void performSSE(const T* a, const T* b,
     diag2_[k] = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&diag2[i-3-k*4]));
   }
   
-#ifndef NDEBUG
+#ifdef FLST_DEBUG
   for (k = 0; k < 5; ++k) {
     std::uint32_t diag0 = _mm_extract_epi32(diag_[k], 0);
     std::uint32_t diag1 = _mm_extract_epi32(diag_[k], 1);
@@ -207,7 +207,7 @@ static inline void performSSE(const T* a, const T* b,
     assert(sc2 == ((a[i-1-k*4-1] == b[j-1+k*4+1]) ? 0 : 1));
     assert(sc3 == ((a[i-1-k*4-0] == b[j-1+k*4+0]) ? 0 : 1));
   }
-#endif
+#endif // FLST_DEBUG
 
   // reminders:
   // the arrays (diag, diag2, substitutionCost32) correspond to i:
@@ -230,7 +230,7 @@ static inline void performSSE(const T* a, const T* b,
     __m128i result3 = _mm_add_epi32(diag_i_m1,  substitutionCost32[k]);
     __m128i min = _mm_min_epi32(_mm_min_epi32(result1, result2), result3);
     
-#ifndef NDEBUG
+#ifdef FLST_DEBUG
     std::uint32_t diag_i_m10 = _mm_extract_epi32(diag_i_m1, 0);
     std::uint32_t diag_i_m11 = _mm_extract_epi32(diag_i_m1, 1);
     std::uint32_t diag_i_m12 = _mm_extract_epi32(diag_i_m1, 2);
@@ -274,7 +274,7 @@ static inline void performSSE(const T* a, const T* b,
     assert(result31 == diag[i-1-k*4-2] + ((a[i-1-k*4-2] == b[j-1+k*4+2]) ? 0 : 1));
     assert(result32 == diag[i-1-k*4-1] + ((a[i-1-k*4-1] == b[j-1+k*4+1]) ? 0 : 1));
     assert(result33 == diag[i-1-k*4-0] + ((a[i-1-k*4-0] == b[j-1+k*4+0]) ? 0 : 1));
-#endif
+#endif // FLST_DEBUG
 
     _mm_storeu_si128(reinterpret_cast<__m128i*>(&diag[i-k*4-3]), min);
   }
