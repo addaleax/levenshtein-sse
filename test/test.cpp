@@ -2,6 +2,9 @@
 #include "Levenshtein-SSE.hpp"
 #include "FileMappedString.hpp"
 #include <chrono>
+#include <list>
+#include <deque>
+#include <array>
 #include <iostream>
 
 template<typename CharT>
@@ -85,6 +88,26 @@ int main() {
     {"Bananas", "are", "yellow"},
     {"Bananas", "are", "always", "yellow"},
     1);
+  
+  levenshteinContainerExpect<std::list<std::string>>(
+    {"Bananas", "are", "yellow"},
+    {"Bananas", "are", "always", "yellow"},
+    1);
+  
+  levenshteinContainerExpect<std::list<int>>(
+    {2, 3, 5, 7, 11, 13, 17, 19},
+    {1, 3, 5, 7, 9, 11, 13, 15, 17, 19},
+    3);
+  
+  levenshteinContainerExpect<std::deque<int>>(
+    {2, 3, 5, 7, 11, 13, 17, 19},
+    {1, 3, 5, 7, 9, 11, 13, 15, 17, 19},
+    3);
+  
+  levenshteinContainerExpect<std::array<int, 10>>(
+    {2, 3, 5, 7, 11, 13, 17, 19, 23, 29},
+    {1, 3, 5, 7, 9, 11, 13, 15, 17, 19},
+    5);
   
   levenshteinFileExpect<char>("test/assets/loremipsum_1-16k.utf8", "test/assets/loremipsum_2-16k.utf8", 12453);
   levenshteinFileExpect<short>("test/assets/loremipsum_1-16k.utf16", "test/assets/loremipsum_2-16k.utf16", 12450);

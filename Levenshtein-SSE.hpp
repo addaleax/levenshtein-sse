@@ -16,6 +16,13 @@
 #include "AlignmentAllocator.hpp"
 
 namespace levenshteinSSE {
+  
+template<typename Iterator1, typename Iterator2>
+std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd);
+
+template<typename Container>
+std::size_t levenshteinContainer(const Container& a, const Container& b);
+  
 #ifdef __SSSE3__
 constexpr std::size_t alignment = 16;
 #else
@@ -376,8 +383,38 @@ T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
   assert(0);
 }
 
+// based on https://github.com/sindresorhus/leven
+template<typename T, typename Iterator1, typename Iterator2>
+T levenshteinRowBased(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) {
+  std::vector<T> arr;
+  
+  std::size_t i = 0, j = 0;
+  T ret(0);
+  
+  for (Iterator1 it = a; it != aEnd; ++it) {
+    arr.push_back(++i);
+  }
+  
+  arr.shrink_to_fit();
+
+  for (; b != bEnd; ++b) {
+    T tmp = j++;
+    ret = j;
+    i = 0;
+    
+    for (Iterator1 it = a; it != aEnd; ++it, ++i) {
+      T tmp2 = *b == *it ? tmp : tmp + 1;
+      tmp = arr[i];
+      ret = arr[i] = tmp > ret ? tmp2 > ret ? ret + 1 : tmp2 : tmp2 > tmp ? tmp + 1 : tmp2;
+    }
+  }
+
+  return ret;
+}
+
 template<typename Iterator1, typename Iterator2>
-std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) {
+std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd,
+  std::random_access_iterator_tag, std::random_access_iterator_tag) {
   if (aEnd - a > bEnd - b) {
     return levenshtein(b, bEnd, a, aEnd);
   }
@@ -404,6 +441,50 @@ std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd
     return levenshteinDiagonal<std::uint32_t>(a, aEnd, b, bEnd);
   
   return levenshteinDiagonal<std::size_t>(a, aEnd, b, bEnd);
+}
+
+template<typename Iterator1, typename Iterator2>
+std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd,
+  std::bidirectional_iterator_tag, std::bidirectional_iterator_tag) {
+  // skip common prefixes and suffixes
+  while (a != aEnd && b != bEnd && *a == *b)
+    ++a, ++b;
+  
+  while (a != aEnd && b != bEnd && *std::prev(aEnd) == *std::prev(bEnd))
+    --aEnd, --bEnd;
+  
+  if (a == aEnd) {
+    return std::distance(b, bEnd);
+  }
+  
+  if (b == bEnd) {
+    return std::distance(a, aEnd);
+  }
+  
+  if (std::next(a) == aEnd) {
+    std::size_t ret = 0, found = 0;
+    for (; b != bEnd; ++b, ++ret)
+      if (*b == *a)
+        found = 1;
+    return ret - found;
+  }
+  
+  if (std::next(b) == bEnd) {
+    std::size_t ret = 0, found = 0;
+    for (; a != aEnd; ++a, ++ret)
+      if (*b == *a)
+        found = 1;
+    return ret - found;
+  }
+  
+  return levenshteinRowBased<std::size_t>(a, aEnd, b, bEnd);
+}
+
+template<typename Iterator1, typename Iterator2>
+std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) {
+  return levenshtein(a, aEnd, b, bEnd,
+    typename std::iterator_traits<Iterator1>::iterator_category(),
+    typename std::iterator_traits<Iterator2>::iterator_category());
 }
 
 template<typename Container>
