@@ -13,15 +13,104 @@
 #include <smmintrin.h>
 #endif
 
-#include "AlignmentAllocator.hpp"
-
 namespace levenshteinSSE {
+
+/**
+ * C++ STL allocator returning aligned memory with additional memory
+ * on both sides to safely allow garbage reads/writes
+ * 
+ * based on https://stackoverflow.com/a/8545389/688904
+ */
+template <typename T, std::size_t N = 16>
+class AlignmentAllocator {
+public:
+  typedef T value_type;
+  typedef std::size_t size_type;
+  typedef std::ptrdiff_t difference_type;
+
+  typedef T* pointer;
+  typedef const T* const_pointer;
+
+  typedef T& reference;
+  typedef const T& const_reference;
+
+  constexpr inline AlignmentAllocator () noexcept { }
+
+  template <typename T2>
+  constexpr inline AlignmentAllocator (const AlignmentAllocator<T2, N> &) noexcept { }
+
+  inline ~AlignmentAllocator () noexcept { }
+
+  inline pointer address (reference r) {
+    return &r;
+  }
+
+  inline const_pointer address (const_reference r) const {
+    return &r;
+  }
+
+  inline pointer allocate (size_type n) {
+    // this allocator is special in that it leaves 4*N bytes before and after
+    // the allocated area for garbage reads/writes
+    return reinterpret_cast<pointer>(reinterpret_cast<char*>(_mm_malloc(n * sizeof(value_type) + 8 * N, N)) + 4*N);
+  }
+
+  inline void deallocate (pointer p, size_type) {
+    _mm_free(reinterpret_cast<char*>(p) - 4*N);
+  }
+
+  inline void construct (pointer p, const value_type& value) {
+     new (p) value_type (value);
+  }
+
+  inline void destroy (pointer p) {
+    p->~value_type ();
+  }
+
+  constexpr inline size_type max_size () const noexcept {
+    return size_type (-1) / sizeof (value_type);
+  }
+
+  template <typename T2>
+  struct rebind {
+    typedef AlignmentAllocator<T2, N> other;
+  };
+
+  constexpr bool operator!=(const AlignmentAllocator<T,N>& other) const  {
+    return !(*this == other);
+  }
+
+  // Returns true if and only if storage allocated from *this
+  // can be deallocated from other, and vice versa.
+  // Always returns true for stateless allocators.
+  constexpr bool operator==(const AlignmentAllocator<T,N>& other) const {
+    return other.usesMMAlloc;
+  }
   
+  static constexpr bool usesMMAlloc = true;
+};
+
+template <typename T>
+class AlignmentAllocator<T, 1> : public std::allocator<T> {
+public:
+  static constexpr bool usesMMAlloc = false;
+};
+
+/**
+ * Public methods
+ * 
+ * levenshtein(a, aEnd, b, bEnd) takes any two sets of BidirectionalIterator
+ * instances specifying ranges to be compared (pointers *are* accepted).
+ * 
+ * levenshtein(a, b) requires two containers returning BidirectionalIterator
+ * for std::begin and std::end.
+ */
+
 template<typename Iterator1, typename Iterator2>
 std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd);
 
-template<typename Container>
-std::size_t levenshteinContainer(const Container& a, const Container& b);
+template<typename Container1, typename Container2>
+std::size_t levenshtein(const Container1& a, const Container2& b);
   
 #ifdef __SSSE3__
 constexpr std::size_t alignment = 16;
@@ -480,6 +569,36 @@ std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd
   return levenshteinRowBased<std::size_t>(a, aEnd, b, bEnd);
 }
 
+// SFINAE checker for .data() and .size()
+template<typename T>
+struct has_data_and_size {
+private:
+  struct char2 { char _[2]; };
+  template<typename U> static auto test(U* a) -> decltype(a->data(), a->size(), char(0));
+  template<typename U> static auto test(const U* a) -> char2;
+public:
+  static constexpr bool value = sizeof(test(static_cast<T*>(nullptr))) == 1;
+};
+
+template<bool useDataAndSize>
+struct LevenshteinContainer {};
+
+template<>
+struct LevenshteinContainer<true> {
+template<typename Container1, typename Container2>
+static inline std::size_t calc(const Container1& a, const Container2& b) {
+  return levenshtein(a.data(), a.data() + a.size(), b.data(), b.data() + b.size());
+}
+};
+
+template<>
+struct LevenshteinContainer<false> {
+template<typename Container1, typename Container2>
+static inline std::size_t calc(const Container1& a, const Container2& b) {
+  return levenshtein(std::begin(a), std::end(a), std::begin(b), std::end(b));
+}
+};
+
 template<typename Iterator1, typename Iterator2>
 std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) {
   return levenshtein(a, aEnd, b, bEnd,
@@ -487,9 +606,10 @@ std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd
     typename std::iterator_traits<Iterator2>::iterator_category());
 }
 
-template<typename Container>
-std::size_t levenshteinContainer(const Container& a, const Container& b) {
-  return levenshtein(std::begin(a), std::end(a), std::begin(b), std::end(b));
+template<typename Container1, typename Container2>
+std::size_t levenshtein(const Container1& a, const Container2& b) {
+  return LevenshteinContainer<has_data_and_size<Container1>::value &&
+    has_data_and_size<Container2>::value>::calc(a, b);
 }
 }
 
