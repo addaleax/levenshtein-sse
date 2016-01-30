@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <string>
 
+template<typename T>
 class FileMappedString {
   public:
     FileMappedString(const std::string& file)
@@ -35,7 +36,7 @@ class FileMappedString {
         goto close_and_throw;
       }
       
-      base = static_cast<char*>(mem);
+      base = static_cast<T*>(mem);
     }
     
     ~FileMappedString() {
@@ -59,11 +60,11 @@ class FileMappedString {
       other.base = nullptr;
     }
     
-    const char* begin() const { return base; }
-    const char* end() const { return base + sz; }
-    size_t size() const { return sz; }
+    const T* begin() const { return base; }
+    const T* end() const { return base + size(); }
+    size_t size() const { return sz/sizeof(T); }
   private:
-    char* base;
+    T* base;
     size_t sz;
 };
 
