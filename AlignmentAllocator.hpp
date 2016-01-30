@@ -23,7 +23,6 @@ public:
   typedef T& reference;
   typedef const T& const_reference;
 
-  public:
   inline AlignmentAllocator () throw () { }
 
   template <typename T2>

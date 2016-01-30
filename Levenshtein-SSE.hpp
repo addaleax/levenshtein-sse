@@ -406,9 +406,9 @@ std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd
   return levenshteinDiagonal<std::size_t>(a, aEnd, b, bEnd);
 }
 
-template<typename String>
-std::size_t levenshteinString(const String& a, const String& b) {
-  return levenshtein(std::cbegin(a), std::cend(a), std::cbegin(b), std::cend(b));
+template<typename Container>
+std::size_t levenshteinContainer(const Container& a, const Container& b) {
+  return levenshtein(std::begin(a), std::end(a), std::begin(b), std::end(b));
 }
 }
 

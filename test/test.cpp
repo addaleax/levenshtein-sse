@@ -9,7 +9,7 @@ void levenshteinStringExpect(const std::string& a, const std::string& b, uint32_
   std::basic_string<CharT> a_(std::begin(a), std::end(a));
   std::basic_string<CharT> b_(std::begin(b), std::end(b));
   auto start = std::chrono::high_resolution_clock::now();
-  auto distance = levenshteinSSE::levenshteinString(a_, b_);
+  auto distance = levenshteinSSE::levenshteinContainer(a_, b_);
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff = end-start;
 
@@ -20,10 +20,25 @@ void levenshteinStringExpect(const std::string& a, const std::string& b, uint32_
   assert (distance == expected);
 }
 
+template<typename Container>
+void levenshteinContainerExpect(const Container& a, const Container& b, uint32_t expected) {
+  auto start = std::chrono::high_resolution_clock::now();
+  auto distance = levenshteinSSE::levenshteinContainer(a, b);
+  auto end = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff = end-start;
+
+  std::cerr << "a.size() = " << a.size() << "\nb.size() = " << b.size()
+            << "\nContainer = " << typeid(Container).name()
+            << "\ndistance = " << distance << ", expected = " << expected
+            << "\nTime: " << diff.count() << " s\n";
+  
+  assert (distance == expected);
+}
+
 template<typename CharT>
 void levenshteinFileExpect(const std::string& a, const std::string& b, uint32_t expected) {
   auto start = std::chrono::high_resolution_clock::now();
-  auto distance = levenshteinSSE::levenshteinString(FileMappedString<CharT>(a), FileMappedString<CharT>(b));
+  auto distance = levenshteinSSE::levenshteinContainer(FileMappedString<CharT>(a), FileMappedString<CharT>(b));
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff = end-start;
   
@@ -55,6 +70,22 @@ int main() {
   levenshteinStringExpect<char>("A", "Sitting", 7);
   levenshteinStringExpect<char>("", "Sitting", 7);
   levenshteinStringExpect<char>("Sitting", "Sitting", 0);
+  
+  levenshteinContainerExpect<std::vector<char>>(
+    {'S', 'i', 't', 't', 'i', 'n', 'g'},
+    {'K', 'i', 't', 't', 'e', 'n'},
+    3);
+  
+  levenshteinContainerExpect<std::vector<long>>(
+    {'S', 'i', 't', 't', 'i', 'n', 'g'},
+    {'K', 'i', 't', 't', 'e', 'n'},
+    3);
+  
+  levenshteinContainerExpect<std::vector<std::string>>(
+    {"Bananas", "are", "yellow"},
+    {"Bananas", "are", "always", "yellow"},
+    1);
+  
   levenshteinFileExpect<char>("test/assets/loremipsum_1-16k.utf8", "test/assets/loremipsum_2-16k.utf8", 12453);
   levenshteinFileExpect<short>("test/assets/loremipsum_1-16k.utf16", "test/assets/loremipsum_2-16k.utf16", 12450);
   levenshteinFileExpect<char>("test/assets/loremipsum_1-64k.utf8", "test/assets/loremipsum_2-64k.utf8", 49618);
