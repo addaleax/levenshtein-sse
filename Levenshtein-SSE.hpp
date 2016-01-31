@@ -1,5 +1,5 @@
-#ifndef FLST_LEVENSHTEIN_SSE_HPP
-#define FLST_LEVENSHTEIN_SSE_HPP
+#ifndef LSTSSE_LEVENSHTEIN_SSE_HPP
+#define LSTSSE_LEVENSHTEIN_SSE_HPP
 
 #include <algorithm>
 #include <vector>
@@ -16,12 +16,50 @@
 namespace levenshteinSSE {
 
 /**
+ * Public methods
+ */
+
+/**
+ * Compute the Levenshtein distances of [a, aEnd) and [b, bEnd).
+ * Both types of iterators need to be bidirectional, e.g.
+ * fulfill the requirements of BidirectionalIterator, but may just be
+ * pointers.
+ * 
+ * For pointers to types where SIMD instructions make sense, these are
+ * used when available.
+ */
+template<typename Iterator1, typename Iterator2>
+std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd);
+
+/**
+ * Compute the Levenshtein distances of a and b.
+ * Both containers need to support bidirectional start and end iterators
+ * (via std::begin() and std::end()).
+ * 
+ * If both containers provide .data() and .size(), these are used to
+ * get pointers to the start and past-end elements. This holds true
+ * for std::string, std::vector, std::array and possibly more, but
+ * if you want to use this with other container types, bear in mind that
+ * this also means that the available memory area needs to be contiguous.
+ */
+template<typename Container1, typename Container2>
+std::size_t levenshtein(const Container1& a, const Container2& b);
+
+/**
+ * Only implementation-specific stuff below
+ */
+
+/**
  * C++ STL allocator returning aligned memory with additional memory
  * on both sides to safely allow garbage reads/writes
  * 
  * based on https://stackoverflow.com/a/8545389/688904
  */
 template <typename T, std::size_t N = 16>
+class AlignmentAllocator;
+
+#ifdef __SSE2__
+template <typename T, std::size_t N>
 class AlignmentAllocator {
 public:
   typedef T value_type;
@@ -89,6 +127,7 @@ public:
   
   static constexpr bool usesMMAlloc = true;
 };
+#endif
 
 template <typename T>
 class AlignmentAllocator<T, 1> : public std::allocator<T> {
@@ -96,22 +135,6 @@ public:
   static constexpr bool usesMMAlloc = false;
 };
 
-/**
- * Public methods
- * 
- * levenshtein(a, aEnd, b, bEnd) takes any two sets of BidirectionalIterator
- * instances specifying ranges to be compared (pointers *are* accepted).
- * 
- * levenshtein(a, b) requires two containers returning BidirectionalIterator
- * for std::begin and std::end.
- */
-
-template<typename Iterator1, typename Iterator2>
-std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd);
-
-template<typename Container1, typename Container2>
-std::size_t levenshtein(const Container1& a, const Container2& b);
-  
 #ifdef __SSSE3__
 constexpr std::size_t alignment = 16;
 #else
@@ -119,6 +142,44 @@ constexpr std::size_t alignment = 16;
 constexpr std::size_t alignment = 1;
 #endif
 
+/**
+ * Some notes on the algorithm used here:
+ * 
+ * The standard Levenshtein metric is usually calculated using the
+ * Wagner–Fischer algorithm [1]. This essentially means calculating
+ * Levenshtein(a[:n], b[:m]) for all prefixes a[:n] and b[:m] of a and b,
+ * storing the results in a table (and possibly “forgetting”
+ * the previous rows to save memory). Normally, this is performed
+ * row by row, but this approach has the disadvantage that it is not
+ * easily converted to using SIMD instructions.
+ * 
+ * The “diagonal” algorithm variants in this file calculate the minor
+ * diagonals one by one. There, the index `i` always corresponds to the
+ * table row in which we currently are and `j` always denotes the column. 
+ * Note that the tables have a trivial i=0 row and j=0 column; The
+ * table entry [i,j] corresponds to the comparison a[i-1] == b[j-1].
+ * A diagonal is defined by its index `k`, yielding the inner loop invariant
+ * k == i + j.
+ * 
+ * The outer loop iterates over all diagonals from k = 0 to
+ * k = len(a)+len(b) (compare with the table in [1] to verify), meaning
+ * that the length of the diagonals may vary between iterations.
+ * The current diagonal and the previous diagonal are kept in memory,
+ * referred to as diag and diag2 respectively.
+ * 
+ * In the inner loop, the rows are treated in descending order,
+ * i.e. `i` decreases from iteration to iteration, to avoid overwriting
+ * data needed in the next iteration.
+ * 
+ * [1]: https://en.wikipedia.org/wiki/Wagner%E2%80%93Fischer_algorithm
+ */
+
+/**
+ * Trivial implementation of one inner loop iteration.
+ * 
+ * Note that i is passed as a reference; The SIMD version may decrease it
+ * by more than 1.
+ */
 template<typename Vec1, typename Vec2, typename Iterator1, typename Iterator2>
 struct LevenshteinIterationBase {
 static inline void perform(const Iterator1& a, const Iterator2& b,
@@ -134,15 +195,21 @@ static inline void perform(const Iterator1& a, const Iterator2& b,
 }
 };
 
-/* SSE */
+/**
+ * Start SIMD-Land
+ * 
+ * Currently, only SSSE3+ is supported, since we use
+ * _mm_shuffle_epi8 and _mm_alignr_epi8.
+ * 
+ * If you are not familiar with SSE and/or the intrinsics,
+ * you can just believe me that they do about the same thing
+ * as LevenshteinIterationBase::perform.
+ */
 
 #ifdef __SSSE3__
 #ifndef __SSE4_1__
-// we need a replacement for _mm_min_epi32
-#define _mm_min_epi32 FLST__mm_min_epi32
-
-static inline
-__m128i _mm_min_epi32 (__m128i a, __m128i b) {
+// straightforward _mm_min_epi32 polyfill using only SSE2
+inline __m128i _mm_min_epi32 (__m128i a, __m128i b) {
   __m128i compare = _mm_cmpgt_epi32(a, b);
   __m128i aIsSmaller = _mm_andnot_si128(a, compare);
   __m128i bIsSmaller = _mm_and_si128   (b, compare);
@@ -206,6 +273,9 @@ static inline void performSSE(const T* a, const T* b,
   __m128i substitutionCost32[4];
   std::size_t k;
   
+  // We support 1, 2, and 4 byte objects for SSE comparison.
+  // We always process 16 entries at once, so we may need multiple fetches
+  // depending on object size.
   if (sizeof(T) <= 2) {
     __m128i substitutionCost16LX, substitutionCost16HX;
     
@@ -248,6 +318,8 @@ static inline void performSSE(const T* a, const T* b,
     substitutionCost32[2] = _mm_unpacklo_epi16(substitutionCost16HX, zero);
     substitutionCost32[3] = _mm_unpackhi_epi16(substitutionCost16HX, zero);
   } else {
+    assert(sizeof(T) == 4);
+    
     for (k = 0; k < 4; ++k) {
       __m128i a_ = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&a[i-4-k*4]));
       __m128i b_ = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&b[j-1+k*4]));
@@ -264,7 +336,9 @@ static inline void performSSE(const T* a, const T* b,
     diag2_[k] = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&diag2[i-3-k*4]));
   }
   
-#ifdef FLST_DEBUG
+  // There’s a ton of debug stuff down here. You can use it for reference
+  // or, of course, compile with -DLSTSSE_DEBUG if you’re feeling funny.
+#ifdef LSTSSE_DEBUG
   for (k = 0; k < 5; ++k) {
     std::uint32_t diag0 = _mm_extract_epi32(diag_[k], 0);
     std::uint32_t diag1 = _mm_extract_epi32(diag_[k], 1);
@@ -296,7 +370,7 @@ static inline void performSSE(const T* a, const T* b,
     assert(sc2 == ((a[i-1-k*4-1] == b[j-1+k*4+1]) ? 0 : 1));
     assert(sc3 == ((a[i-1-k*4-0] == b[j-1+k*4+0]) ? 0 : 1));
   }
-#endif // FLST_DEBUG
+#endif // LSTSSE_DEBUG
 
   // reminders:
   // the arrays (diag, diag2, substitutionCost32) correspond to i:
@@ -319,7 +393,7 @@ static inline void performSSE(const T* a, const T* b,
     __m128i result3 = _mm_add_epi32(diag_i_m1,  substitutionCost32[k]);
     __m128i min = _mm_min_epi32(_mm_min_epi32(result1, result2), result3);
     
-#ifdef FLST_DEBUG
+#ifdef LSTSSE_DEBUG
     std::uint32_t diag_i_m10 = _mm_extract_epi32(diag_i_m1, 0);
     std::uint32_t diag_i_m11 = _mm_extract_epi32(diag_i_m1, 1);
     std::uint32_t diag_i_m12 = _mm_extract_epi32(diag_i_m1, 2);
@@ -363,20 +437,32 @@ static inline void performSSE(const T* a, const T* b,
     assert(result31 == diag[i-1-k*4-2] + ((a[i-1-k*4-2] == b[j-1+k*4+2]) ? 0 : 1));
     assert(result32 == diag[i-1-k*4-1] + ((a[i-1-k*4-1] == b[j-1+k*4+1]) ? 0 : 1));
     assert(result33 == diag[i-1-k*4-0] + ((a[i-1-k*4-0] == b[j-1+k*4+0]) ? 0 : 1));
-#endif // FLST_DEBUG
+#endif // LSTSSE_DEBUG
 
     _mm_storeu_si128(reinterpret_cast<__m128i*>(&diag[i-k*4-3]), min);
   }
   
+  // We just handled 16 entries at once. Yay!
   i -= 16;
 }
 #endif // __SSSE3__
 };
 
+/**
+ * Default: If we don’t know better, just use the trivial implementation.
+ * 
+ * This is overloaded in multiple places and is the struct whose `perform`
+ * method will ultimately be called from the outer loop.
+ * 
+ * Vec1 and Vec2 correspond to `diag` and `diag2`, respectively.
+ */
 template<typename Vec1, typename Vec2, typename Iterator1, typename Iterator2>
 struct LevenshteinIteration : LevenshteinIterationBase<Vec1, Vec2, Iterator1, Iterator2> {
 };
 
+/**
+ * Use a wrapper to decay the `diag` and `diag2` entries into pointers.
+ */
 template<typename Alloc1, typename Alloc2, typename T>
 struct LevenshteinIterationSIMDWrap : private LevenshteinIterationSIMD<T> {
 static inline void perform(const T* a, const T* b,
@@ -387,6 +473,11 @@ static inline void perform(const T* a, const T* b,
 }
 };
 
+/**
+ * Use a wrapper to test whether we can use SSE instuctions.
+ * 
+ * T needs to be a scalar of size 1, 2 or 4.
+ */
 template<typename Alloc1, typename Alloc2, typename T>
 struct LevenshteinIteration<std::vector<std::uint32_t, Alloc1>, std::vector<std::uint32_t, Alloc2>, const T*, const T*>
   : std::conditional<std::is_scalar<T>::value && (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4),
@@ -395,31 +486,17 @@ struct LevenshteinIteration<std::vector<std::uint32_t, Alloc1>, std::vector<std:
   >::type
 { };
 
+/**
+ * Always decay pointers to const.
+ */
 template<typename Alloc1, typename Alloc2, typename T>
 struct LevenshteinIteration<std::vector<std::uint32_t, Alloc1>, std::vector<std::uint32_t, Alloc2>, T*, T*>
   : LevenshteinIteration<std::vector<std::uint32_t, Alloc1>, std::vector<std::uint32_t, Alloc2>, const T*, const T*>
 { };
 
-template<typename Vec1, typename Vec2>
-struct LevenshteinIteration<Vec1, Vec2, std::string::iterator, std::string::iterator> {
-static inline void perform(const std::string::iterator& a, const std::string::iterator& b,
-  std::size_t& i, std::size_t j, size_t bLen, Vec1& diag, const Vec2& diag2)
-{
-  LevenshteinIteration<Vec1, Vec2, const char*, const char*>
-    ::perform(&*a, &*b, i, j, bLen, diag, diag2);
-}
-};
-
-template<typename Vec1, typename Vec2>
-struct LevenshteinIteration<Vec1, Vec2, std::string::const_iterator, std::string::const_iterator> {
-static inline void perform(const std::string::const_iterator& a, const std::string::const_iterator& b,
-  std::size_t& i, std::size_t j, size_t bLen, Vec1& diag, const Vec2& diag2)
-{
-  LevenshteinIteration<Vec1, Vec2, const char*, const char*>
-    ::perform(&*a, &*b, i, j, bLen, diag, diag2);
-}
-};
-
+/**
+ * Outer loop of the diagonal algorithm variant.
+ */
 template<typename T, typename Iterator1, typename Iterator2>
 T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) {
   const std::size_t aLen = aEnd - a;
@@ -472,7 +549,11 @@ T levenshteinDiagonal(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
   assert(0);
 }
 
-// based on https://github.com/sindresorhus/leven
+/**
+ * Outer loop of the row-based variant, used for non-random-access iterators.
+ * 
+ * based on https://github.com/sindresorhus/leven
+ */
 template<typename T, typename Iterator1, typename Iterator2>
 T levenshteinRowBased(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) {
   std::vector<T> arr;
@@ -501,6 +582,10 @@ T levenshteinRowBased(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd) 
   return ret;
 }
 
+/**
+ * Preable for edge cases and skipping common prefixes/suffixes,
+ * random access version.
+ */
 template<typename Iterator1, typename Iterator2>
 std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd,
   std::random_access_iterator_tag, std::random_access_iterator_tag) {
@@ -532,6 +617,10 @@ std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd
   return levenshteinDiagonal<std::size_t>(a, aEnd, b, bEnd);
 }
 
+/**
+ * Preable for edge cases and skipping common prefixes/suffixes,
+ * non-random access version.
+ */
 template<typename Iterator1, typename Iterator2>
 std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd,
   std::bidirectional_iterator_tag, std::bidirectional_iterator_tag) {
@@ -574,7 +663,7 @@ template<typename T>
 struct has_data_and_size {
 private:
   struct char2 { char _[2]; };
-  template<typename U> static auto test(U* a) -> decltype(a->data(), a->size(), char(0));
+  template<typename U> static auto test(U* a) -> decltype(a->data() + a->size(), char(0));
   template<typename U> static auto test(const U* a) -> char2;
 public:
   static constexpr bool value = sizeof(test(static_cast<T*>(nullptr))) == 1;
@@ -583,6 +672,9 @@ public:
 template<bool useDataAndSize>
 struct LevenshteinContainer {};
 
+/**
+ * Use .data(), .size() when available.
+ */
 template<>
 struct LevenshteinContainer<true> {
 template<typename Container1, typename Container2>
@@ -591,6 +683,9 @@ static inline std::size_t calc(const Container1& a, const Container2& b) {
 }
 };
 
+/**
+ * Use std::begin(), std::end() otherwise.
+ */
 template<>
 struct LevenshteinContainer<false> {
 template<typename Container1, typename Container2>
