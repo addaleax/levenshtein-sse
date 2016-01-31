@@ -1,0 +1,18 @@
+language: cpp
+script: make clean && make all
+compiler:
+  - clang
+  - gcc
+os:
+  - linux
+  - osx
+sudo: false
+cache:
+  - apt
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - g++-4.8
+      - libstdc++-4.8-dev
