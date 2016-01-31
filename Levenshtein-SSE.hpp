@@ -1,3 +1,9 @@
+/**
+ * Copyright (c) 2016 Anna Henningsen <sqrt@entless.org>
+ * 
+ * MIT License
+ */
+
 #ifndef LSTSSE_LEVENSHTEIN_SSE_HPP
 #define LSTSSE_LEVENSHTEIN_SSE_HPP
 
