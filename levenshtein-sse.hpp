@@ -45,7 +45,7 @@ std::size_t levenshtein(Iterator1 a, Iterator1 aEnd, Iterator2 b, Iterator2 bEnd
  * If both containers provide .data() and .size(), these are used to
  * get pointers to the start and past-end elements. This holds true
  * for std::string, std::vector, std::array and possibly more, but
- * if you want to use this with other container types, bear in mind that
+ * if you want to use this with custom container types, bear in mind that
  * this also means that the available memory area needs to be contiguous.
  */
 template<typename Container1, typename Container2>

@@ -1,5 +1,5 @@
 /* Testing */
-#include "Levenshtein-SSE.hpp"
+#include "levenshtein-sse.hpp"
 #include "FileMappedString.hpp"
 #include <chrono>
 #include <list>
@@ -8,12 +8,14 @@
 #include <iostream>
 #include <typeinfo>
 
+using levenshteinSSE::levenshtein;
+
 template<typename CharT>
 void levenshteinStringExpect(const std::string& a, const std::string& b, std::uint32_t expected) {
   std::basic_string<CharT> a_(std::begin(a), std::end(a));
   std::basic_string<CharT> b_(std::begin(b), std::end(b));
   auto start = std::chrono::high_resolution_clock::now();
-  auto distance = levenshteinSSE::levenshtein(a_, b_);
+  auto distance = levenshtein(a_, b_);
   auto end = std::chrono::high_resolution_clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
 
@@ -28,7 +30,7 @@ void levenshteinStringExpect(const std::string& a, const std::string& b, std::ui
 template<typename Container>
 void levenshteinContainerExpect(const Container& a, const Container& b, std::uint32_t expected) {
   auto start = std::chrono::high_resolution_clock::now();
-  auto distance = levenshteinSSE::levenshtein(a, b);
+  auto distance = levenshtein(a, b);
   auto end = std::chrono::high_resolution_clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
 
@@ -44,7 +46,7 @@ void levenshteinContainerExpect(const Container& a, const Container& b, std::uin
 template<typename CharT>
 void levenshteinFileExpect(const std::string& a, const std::string& b, std::uint32_t expected) {
   auto start = std::chrono::high_resolution_clock::now();
-  auto distance = levenshteinSSE::levenshtein(FileMappedString<CharT>(a), FileMappedString<CharT>(b));
+  auto distance = levenshtein(FileMappedString<CharT>(a), FileMappedString<CharT>(b));
   auto end = std::chrono::high_resolution_clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
   

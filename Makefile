@@ -2,6 +2,6 @@ CXXFLAGS = -O3 -DNDEBUG -march=native -std=c++11 -Wall -Wextra -Wno-unused-param
 
 all: test/test
 
-test/test: test/test.cpp Levenshtein-SSE.hpp test/FileMappedString.hpp test/ErrnoException.hpp
+test/test: test/test.cpp levenshtein-sse.hpp test/FileMappedString.hpp test/ErrnoException.hpp
 	$(CXX) $(CXXFLAGS) $(CLFAGS) -I. -o $@ test/test.cpp
 	time test/test
