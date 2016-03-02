@@ -191,12 +191,12 @@ struct LevenshteinIterationBase {
 static inline void perform(const Iterator1& a, const Iterator2& b,
   std::size_t& i, std::size_t j, std::size_t bLen, Vec1& diag, const Vec2& diag2)
 {
-  int substitutionCost = a[i-1] == b[j-1] ? 0 : 1;
+  int substitutionCost = a[i-1] == b[j-1] ? -1 : 0;
   diag[i] = std::min({
-    diag2[i-1]+1,
-    diag2[i]+1,
+    diag2[i-1],
+    diag2[i],
     diag[i-1] + substitutionCost
-  });
+  }) + 1;
   --i;
 }
 };
@@ -247,8 +247,6 @@ static inline void performSSE(const T* a, const T* b,
   std::size_t& i, std::size_t j, std::size_t bLen,
   std::uint32_t* diag, const std::uint32_t* diag2)
 {
-  const __m128i one128_epi8 = _mm_set1_epi8(1);
-  const __m128i one128_epi16 = _mm_set1_epi16(1);
   const __m128i one128_epi32 = _mm_set1_epi32(1);
   const __m128i reversedIdentity128_epi8 = _mm_setr_epi8(
     15, 14, 13, 12,
@@ -275,7 +273,6 @@ static inline void performSSE(const T* a, const T* b,
     10, 11,  8,  9
   );
 
-  __m128i zero = _mm_setzero_si128();
   __m128i substitutionCost32[4];
   std::size_t k;
   
@@ -290,7 +287,7 @@ static inline void performSSE(const T* a, const T* b,
       __m128i b_ = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&b[j-1]));
       a_ = _mm_shuffle_epi8(a_, reversedIdentity128_epi8);
       
-      // int substitutionCost = a[i-1] == b[j-1] ? 0 : 1;
+      // int substitutionCost = a[i-1] == b[j-1] ? -1 : 0;
       
       // diag/diag2 will contain the following entries from the diagonal:
       // index  [0]0 [0]1 [0]2 [0]3 [1]0 [1]1 [1]2 [1]3 ... [4]0 [4]1 [4]2 [4]3
@@ -302,10 +299,11 @@ static inline void performSSE(const T* a, const T* b,
       // b+j   -1   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14
       // in substitutionCost8X we shuffle this so that it matches up with diag/diag2
       // (barring the offset induces by comparing i-1 against j-1)
-      __m128i substitutionCost8 = _mm_add_epi8(_mm_cmpeq_epi8(a_, b_), one128_epi8);
+      __m128i substitutionCost8 = _mm_cmpeq_epi8(a_, b_);
       __m128i substitutionCost8X = _mm_shuffle_epi8(substitutionCost8, blockwiseReversed128_epi8_4);
-      substitutionCost16LX = _mm_unpacklo_epi8(substitutionCost8X, zero);
-      substitutionCost16HX = _mm_unpackhi_epi8(substitutionCost8X, zero);
+      // unpack with self so that 00 -> 00 00 and ff -> ff ff
+      substitutionCost16LX = _mm_unpacklo_epi8(substitutionCost8X, substitutionCost8X);
+      substitutionCost16HX = _mm_unpackhi_epi8(substitutionCost8X, substitutionCost8X);
     } else {
       __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&a[i-8]));
       __m128i a1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&a[i-16]));
@@ -313,16 +311,16 @@ static inline void performSSE(const T* a, const T* b,
       __m128i b1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&b[j+7]));
       a0 = _mm_shuffle_epi8(a0, reversedIdentity128_epi16);
       a1 = _mm_shuffle_epi8(a1, reversedIdentity128_epi16);
-      __m128i substitutionCost16L = _mm_add_epi16(_mm_cmpeq_epi16(a0, b0), one128_epi16);
-      __m128i substitutionCost16H = _mm_add_epi16(_mm_cmpeq_epi16(a1, b1), one128_epi16);
+      __m128i substitutionCost16L = _mm_cmpeq_epi16(a0, b0);
+      __m128i substitutionCost16H = _mm_cmpeq_epi16(a1, b1);
       substitutionCost16LX = _mm_shuffle_epi8(substitutionCost16L, blockwiseReversed128_epi16_4);
       substitutionCost16HX = _mm_shuffle_epi8(substitutionCost16H, blockwiseReversed128_epi16_4);
     }
     
-    substitutionCost32[0] = _mm_unpacklo_epi16(substitutionCost16LX, zero);
-    substitutionCost32[1] = _mm_unpackhi_epi16(substitutionCost16LX, zero);
-    substitutionCost32[2] = _mm_unpacklo_epi16(substitutionCost16HX, zero);
-    substitutionCost32[3] = _mm_unpackhi_epi16(substitutionCost16HX, zero);
+    substitutionCost32[0] = _mm_unpacklo_epi16(substitutionCost16LX, substitutionCost16LX);
+    substitutionCost32[1] = _mm_unpackhi_epi16(substitutionCost16LX, substitutionCost16LX);
+    substitutionCost32[2] = _mm_unpacklo_epi16(substitutionCost16HX, substitutionCost16HX);
+    substitutionCost32[3] = _mm_unpackhi_epi16(substitutionCost16HX, substitutionCost16HX);
   } else {
     assert(sizeof(T) == 4);
     
@@ -330,7 +328,7 @@ static inline void performSSE(const T* a, const T* b,
       __m128i a_ = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&a[i-4-k*4]));
       __m128i b_ = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&b[j-1+k*4]));
       b_ = _mm_shuffle_epi32(b_, 0x1b); // simple reverse
-      substitutionCost32[k] = _mm_add_epi32(_mm_cmpeq_epi32(a_, b_), one128_epi32);
+      substitutionCost32[k] = _mm_cmpeq_epi32(a_, b_);
     }
   }
   
@@ -371,10 +369,10 @@ static inline void performSSE(const T* a, const T* b,
     int sc1 = _mm_extract_epi32(substitutionCost32[k], 1);
     int sc2 = _mm_extract_epi32(substitutionCost32[k], 2);
     int sc3 = _mm_extract_epi32(substitutionCost32[k], 3);
-    assert(sc0 == ((a[i-1-k*4-3] == b[j-1+k*4+3]) ? 0 : 1));
-    assert(sc1 == ((a[i-1-k*4-2] == b[j-1+k*4+2]) ? 0 : 1));
-    assert(sc2 == ((a[i-1-k*4-1] == b[j-1+k*4+1]) ? 0 : 1));
-    assert(sc3 == ((a[i-1-k*4-0] == b[j-1+k*4+0]) ? 0 : 1));
+    assert(sc0 == ((a[i-1-k*4-3] == b[j-1+k*4+3]) ? -1 : 0));
+    assert(sc1 == ((a[i-1-k*4-2] == b[j-1+k*4+2]) ? -1 : 0));
+    assert(sc2 == ((a[i-1-k*4-1] == b[j-1+k*4+1]) ? -1 : 0));
+    assert(sc3 == ((a[i-1-k*4-0] == b[j-1+k*4+0]) ? -1 : 0));
   }
 #endif // LSTSSE_DEBUG
 
@@ -386,18 +384,18 @@ static inline void performSSE(const T* a, const T* b,
   // in *reverse* order
   
   // diag[i] = min(
-  //  diag2[i-1] + 1,
-  //  diag2[i]   + 1,
-  //  diag[i-1]  + substitutionCost
-  // );
+  //  diag2[i-1],
+  //  diag2[i],
+  //  diag[i-1] + substitutionCost
+  // ) + 1;
+  // 
   for (k = 0; k < 4; ++k) {
     __m128i diag2_i_m1 = _mm_alignr_epi8(diag2_[k], diag2_[k+1], 12);
     __m128i diag_i_m1  = _mm_alignr_epi8(diag_ [k], diag_ [k+1], 12);
     
-    __m128i result1 = _mm_add_epi32(diag2_i_m1, one128_epi32);
-    __m128i result2 = _mm_add_epi32(diag2_[k],  one128_epi32);
     __m128i result3 = _mm_add_epi32(diag_i_m1,  substitutionCost32[k]);
-    __m128i min = _mm_min_epi32(_mm_min_epi32(result1, result2), result3);
+    __m128i min = _mm_min_epi32(_mm_min_epi32(diag2_i_m1, diag2_[k]), result3);
+    min = _mm_add_epi32(min, one128_epi32);
     
 #ifdef LSTSSE_DEBUG
     std::uint32_t diag_i_m10 = _mm_extract_epi32(diag_i_m1, 0);
@@ -418,31 +416,15 @@ static inline void performSSE(const T* a, const T* b,
     assert(diag2_i_m12 == diag2[i-k*4-2]);
     assert(diag2_i_m13 == diag2[i-k*4-1]);
     
-    std::uint32_t result10 = _mm_extract_epi32(result1, 0);
-    std::uint32_t result11 = _mm_extract_epi32(result1, 1);
-    std::uint32_t result12 = _mm_extract_epi32(result1, 2);
-    std::uint32_t result13 = _mm_extract_epi32(result1, 3);
-    std::uint32_t result20 = _mm_extract_epi32(result2, 0);
-    std::uint32_t result21 = _mm_extract_epi32(result2, 1);
-    std::uint32_t result22 = _mm_extract_epi32(result2, 2);
-    std::uint32_t result23 = _mm_extract_epi32(result2, 3);
     std::uint32_t result30 = _mm_extract_epi32(result3, 0);
     std::uint32_t result31 = _mm_extract_epi32(result3, 1);
     std::uint32_t result32 = _mm_extract_epi32(result3, 2);
     std::uint32_t result33 = _mm_extract_epi32(result3, 3);
     
-    assert(result10 == diag2[i-k*4-4] + 1);
-    assert(result11 == diag2[i-k*4-3] + 1);
-    assert(result12 == diag2[i-k*4-2] + 1);
-    assert(result13 == diag2[i-k*4-1] + 1);
-    assert(result20 == diag2[i-k*4-3] + 1);
-    assert(result21 == diag2[i-k*4-2] + 1);
-    assert(result22 == diag2[i-k*4-1] + 1);
-    assert(result23 == diag2[i-k*4-0] + 1);
-    assert(result30 == diag[i-1-k*4-3] + ((a[i-1-k*4-3] == b[j-1+k*4+3]) ? 0 : 1));
-    assert(result31 == diag[i-1-k*4-2] + ((a[i-1-k*4-2] == b[j-1+k*4+2]) ? 0 : 1));
-    assert(result32 == diag[i-1-k*4-1] + ((a[i-1-k*4-1] == b[j-1+k*4+1]) ? 0 : 1));
-    assert(result33 == diag[i-1-k*4-0] + ((a[i-1-k*4-0] == b[j-1+k*4+0]) ? 0 : 1));
+    assert(result30 == diag[i-1-k*4-3] + ((a[i-1-k*4-3] == b[j-1+k*4+3]) ? -1 : 0));
+    assert(result31 == diag[i-1-k*4-2] + ((a[i-1-k*4-2] == b[j-1+k*4+2]) ? -1 : 0));
+    assert(result32 == diag[i-1-k*4-1] + ((a[i-1-k*4-1] == b[j-1+k*4+1]) ? -1 : 0));
+    assert(result33 == diag[i-1-k*4-0] + ((a[i-1-k*4-0] == b[j-1+k*4+0]) ? -1 : 0));
 #endif // LSTSSE_DEBUG
 
     _mm_storeu_si128(reinterpret_cast<__m128i*>(&diag[i-k*4-3]), min);
