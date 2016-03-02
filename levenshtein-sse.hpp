@@ -191,13 +191,14 @@ struct LevenshteinIterationBase {
 static inline void perform(const Iterator1& a, const Iterator2& b,
   std::size_t& i, std::size_t j, std::size_t bLen, Vec1& diag, const Vec2& diag2)
 {
-  if (diag2[i-1] < diag[i-1] || diag2[i] < diag[i-1]) {
-    diag[i] = std::min(diag2[i-1], diag2[i]) + 1;
+  std::uint32_t min = std::min(diag2[i], diag2[i-1]);
+  if (min < diag[i-1]) {
+    diag[i] = min + 1;
   }
   else {
     diag[i] = diag[i-1] + (a[i-1] != b[j-1]);
   }
-  --i;
+  i--;
 }
 };
 
