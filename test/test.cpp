@@ -115,7 +115,17 @@ int main() {
     {1, 3, 5, 7, 9, 11, 13, 15, 17, 19},
     5);
   
-  levenshteinFileExpect<char>("test/assets/loremipsum_1-16k.utf8", "test/assets/loremipsum_1-16k.utf8", 0);
+  levenshteinContainerExpect<std::vector<float>>(
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+     0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+     0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+     0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+    {-0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f,
+     -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f,
+     -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f,
+     -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f},
+    0);
+  
   levenshteinFileExpect<char>("test/assets/loremipsum_1-16k.utf8", "test/assets/loremipsum_2-16k.utf8", 12453);
   levenshteinFileExpect<short>("test/assets/loremipsum_1-16k.utf16", "test/assets/loremipsum_1-16k.utf16", 0);
   levenshteinFileExpect<short>("test/assets/loremipsum_1-16k.utf16", "test/assets/loremipsum_2-16k.utf16", 12450);
