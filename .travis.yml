@@ -16,6 +16,7 @@ addons:
       - g++-4.8
       - time
 before_install:
+  - (grep flags /proc/cpuinfo | sort -u) || true
   - if [ "$CXX" = "g++" ]; then export CXX="g++-4.8" CC="gcc-4.8"; AR="gcc-ar-4.8"; RANLIB="gcc-ranlib-4.8"; NM="gcc-nm-4.8"; fi
 script:
   - make clean && make all

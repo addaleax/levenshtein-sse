@@ -115,9 +115,12 @@ int main() {
     {1, 3, 5, 7, 9, 11, 13, 15, 17, 19},
     5);
   
+  levenshteinFileExpect<char>("test/assets/loremipsum_1-16k.utf8", "test/assets/loremipsum_1-16k.utf8", 0);
   levenshteinFileExpect<char>("test/assets/loremipsum_1-16k.utf8", "test/assets/loremipsum_2-16k.utf8", 12453);
+  levenshteinFileExpect<short>("test/assets/loremipsum_1-16k.utf16", "test/assets/loremipsum_1-16k.utf16", 0);
   levenshteinFileExpect<short>("test/assets/loremipsum_1-16k.utf16", "test/assets/loremipsum_2-16k.utf16", 12450);
   levenshteinFileExpect<char>("test/assets/loremipsum_1-64k.utf8", "test/assets/loremipsum_2-64k.utf8", 49618);
+  levenshteinFileExpect<short>("test/assets/loremipsum_1-64k.utf16", "test/assets/loremipsum_1-64k.utf16", 0);
   levenshteinFileExpect<short>("test/assets/loremipsum_1-64k.utf16", "test/assets/loremipsum_2-64k.utf16", 49607);
   levenshteinFileExpect<char>("test/assets/random64_1",   "test/assets/random64_2",    64);
   levenshteinFileExpect<char>("test/assets/random128_1",  "test/assets/random128_2",  127);
