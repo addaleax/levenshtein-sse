@@ -18,6 +18,9 @@
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #endif
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 
 namespace levenshteinSSE {
 
@@ -232,6 +235,14 @@ static inline void performSIMD(const T* a, const T* b,
   std::size_t& i, std::size_t j, std::size_t bLen,
   std::uint32_t* diag, const std::uint32_t* diag2)
 {
+
+#ifdef __AVX2__
+  if (i >= 32 && bLen - j >= 32) {
+    performSSE_AVX2(a, b, i, j, bLen, diag, diag2);
+    return;
+  }
+#endif
+
 #ifdef __SSSE3__
   if (i >= 16 && bLen - j >= 16) {
     performSSE(a, b, i, j, bLen, diag, diag2);
@@ -435,6 +446,162 @@ static inline void performSSE(const T* a, const T* b,
   i -= 16;
 }
 #endif // __SSSE3__
+
+
+#ifdef __AVX2__
+static inline void performSSE_AVX2(const T* a, const T* b,
+  std::size_t& i, std::size_t j, std::size_t bLen,
+  std::uint32_t* diag, const std::uint32_t* diag2)
+{
+  const __m256i one256_epi32 = _mm256_set1_epi32(1);
+  const __m256i reversedIdentity256_epi8 = _mm256_setr_epi8(
+    15, 14, 13, 12,
+    11, 10,  9,  8,
+     7,  6,  5,  4,
+     3,  2,  1,  0,
+    15, 14, 13, 12,
+    11, 10,  9,  8,
+     7,  6,  5,  4,
+     3,  2,  1,  0
+
+  );
+
+  // TODO:
+  const __m256i reversedIdentity256_epi16 = _mm256_setr_epi8(
+    14, 15, 12, 13,
+    10, 11,  8,  9,
+     6,  7,  4,  5,
+     2,  3,  0,  1,
+    14, 15, 12, 13,
+    10, 11,  8,  9,
+     6,  7,  4,  5,
+     2,  3,  0,  1
+  );
+
+  const __m256i blockwiseReversed256_epi8_4 = _mm256_setr_epi8(
+     3,  2,  1,  0,
+     7,  6,  5,  4,
+    11, 10,  9,  8,
+    15, 14, 13, 12,
+     3,  2,  1,  0,
+     7,  6,  5,  4,
+    11, 10,  9,  8,
+    15, 14, 13, 12
+  );
+
+  // TODO:
+  const __m256i blockwiseReversed256_epi16_4 = _mm256_setr_epi8(
+     6,  7,  4,  5,
+     2,  3,  0,  1,
+    14, 15, 12, 13,
+    10, 11,  8,  9,
+     6,  7,  4,  5,
+     2,  3,  0,  1,
+    14, 15, 12, 13,
+    10, 11,  8,  9
+  );
+
+  __m256i substitutionCost32[4];
+  std::size_t k;
+
+  // We support 1, 2, and 4 byte objects for SSE comparison.
+  // We always process 16 entries at once, so we may need multiple fetches
+  // depending on object size.
+  if (sizeof(T) <= 2) {
+    __m256i substitutionCost16LX, substitutionCost16HX;
+
+    if (sizeof(T) == 1) {
+      __m256i a_ = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&a[i-32]));
+      __m256i b_ = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&b[j-1]));
+      a_ = _mm256_shuffle_epi8(a_, reversedIdentity256_epi8);
+      a_ = _mm256_permute4x64_epi64(a_, 0b01001110); // swap hi/lo
+
+      // int substitutionCost = a[i-1] == b[j-1] ? -1 : 0;
+
+      // diag/diag2 will contain the following entries from the diagonal:
+      // index  [0]0 [0]1 [0]2 [0]3 [1]0 [1]1 [1]2 [1]3 ... [4]0 [4]1 [4]2 [4]3
+      // diag+i   -3   -2   -1    0   -7   -6   -5   -4 ...  -19  -18  -17  -16
+
+      // substitutionCost8 contains the comparisons for the following indices in a and b:
+      // index  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+      // a+i   -1  -2  -3  -4  -5  -6  -7  -8  -9 -10 -11 -12 -13 -14 -15 -16
+      // b+j   -1   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14
+      // in substitutionCost8X we shuffle this so that it matches up with diag/diag2
+      // (barring the offset induces by comparing i-1 against j-1)
+      __m256i substitutionCost8 = _mm256_cmpeq_epi8(a_, b_);
+      __m256i substitutionCost8X = _mm256_shuffle_epi8(substitutionCost8, blockwiseReversed256_epi8_4);
+      // unpack with self so that 00 -> 00 00 and ff -> ff ff
+      substitutionCost16LX = _mm256_unpacklo_epi8(substitutionCost8X, substitutionCost8X);
+      substitutionCost16HX = _mm256_unpackhi_epi8(substitutionCost8X, substitutionCost8X);
+    } else {
+      __m256i a0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&a[i-16]));
+      __m256i a1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&a[i-32]));
+      __m256i b0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&b[j-1]));
+      __m256i b1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&b[j+15]));
+      a0 = _mm256_shuffle_epi8(a0, reversedIdentity256_epi16);
+      a1 = _mm256_shuffle_epi8(a1, reversedIdentity256_epi16);
+      __m256i substitutionCost16L = _mm256_cmpeq_epi16(a0, b0);
+      __m256i substitutionCost16H = _mm256_cmpeq_epi16(a1, b1);
+      substitutionCost16LX = _mm256_shuffle_epi8(substitutionCost16L, blockwiseReversed256_epi16_4);
+      substitutionCost16HX = _mm256_shuffle_epi8(substitutionCost16H, blockwiseReversed256_epi16_4);
+    }
+
+    substitutionCost32[0] = _mm256_unpacklo_epi16(substitutionCost16LX, substitutionCost16LX);
+    substitutionCost32[1] = _mm256_unpackhi_epi16(substitutionCost16LX, substitutionCost16LX);
+    substitutionCost32[2] = _mm256_unpacklo_epi16(substitutionCost16HX, substitutionCost16HX);
+    substitutionCost32[3] = _mm256_unpackhi_epi16(substitutionCost16HX, substitutionCost16HX);
+
+  } else {
+    assert(sizeof(T) == 4);
+
+    for (k = 0; k < 4; ++k) {
+      __m256i a_ = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&a[i-8-k*8]));
+      __m256i b_ = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&b[j-1+k*8]));
+      b_ = _mm256_shuffle_epi32(b_, 0x1b); // simple reverse
+      b_ = _mm256_permute4x64_epi64(b_, 0b01001110); // swap hi/lo
+      substitutionCost32[k] = _mm256_cmpeq_epi32(a_, b_);
+    }
+  }
+
+  __m256i diag_[5], diag2_[5];
+  for (k = 0; k < 5; ++k) {
+    diag_ [k] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&diag [i-7-k*8]));
+  }
+  for (k = 0; k < 5; ++k) {
+    diag2_[k] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&diag2[i-7-k*8]));
+  }
+
+
+  // reminders:
+  // the arrays (diag, diag2, substitutionCost32) correspond to i:
+  // index  [0]0 [0]1 [0]2 [0]3 [1]0 [1]1 [1]2 [1]3 ... [4]0 [4]1 [4]2 [4]3
+  // i+       -3   -2   -1    0   -7   -6   -5   -4 ...  -19  -18  -17  -16
+  // so when we need to access ...[i-1], we need to align the entries
+  // in *reverse* order
+
+  // diag[i] = min(
+  //  diag2[i-1],
+  //  diag2[i],
+  //  diag[i-1] + substitutionCost
+  // ) + 1;
+  //
+  for (k = 0; k < 4; ++k) {
+    __m256i diag2_i_m1 = _mm256_alignr_epi8(diag2_[k], diag2_[k+1], 28);
+    __m256i diag_i_m1  = _mm256_alignr_epi8(diag_ [k], diag_ [k+1], 28);
+
+    __m256i result3 = _mm256_add_epi32(diag_i_m1,  substitutionCost32[k]);
+    __m256i min = _mm256_min_epi32(_mm256_min_epi32(diag2_i_m1, diag2_[k]), result3);
+    min = _mm256_add_epi32(min, one256_epi32);
+
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(&diag[i-k*8-7]), min);
+  }
+
+  // We just handled 32 entries at once. Yay!
+  i -= 32;
+}
+#endif // __AVX2__
+
+
 };
 
 /**
