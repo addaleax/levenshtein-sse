@@ -228,6 +228,24 @@ inline __m128i _mm_min_epi32 (__m128i a, __m128i b) {
 #endif // __SSE4_1__
 #endif // __SSSE3__
 
+#ifdef __AVX2__
+// provide an AVX2 version of _mm256_alignr_epi32(a, b, 7)
+// (i.e. move a one epi32 to the left and write the highest
+// bytes of b to the lowest of a)
+/*#ifndef __AVX512F__*/
+__m256i _mm256_alignr_epi32_7(__m256i a, __m256i b) {
+  const __m256i rotl1_256_epi32 = _mm256_setr_epi32(7, 0, 1, 2, 3, 4, 5, 6);
+  __m256i combined = _mm256_blend_epi32(a, b, 0x80);
+  return _mm256_permutevar8x32_epi32(combined, rotl1_256_epi32);
+}
+/*
+#else
+__m256i _mm256_alignr_epi32_7(__m256i a, __m256i b) {
+  return _mm256_alignr_epi32(a, b, 7);
+}
+#endif*/
+#endif
+
 template<typename T>
 struct LevenshteinIterationSIMD {
 /* Decide which implementation is acceptable */
@@ -463,11 +481,20 @@ static inline void performSSE_AVX2(const T* a, const T* b,
     11, 10,  9,  8,
      7,  6,  5,  4,
      3,  2,  1,  0
-
   );
 
-  // TODO:
-  const __m256i reversedIdentity256_epi16 = _mm256_setr_epi8(
+  const __m256i blockwiseReversed256_epi8_8 = _mm256_setr_epi8(
+     7,  6,  5,  4,
+     3,  2,  1,  0,
+    15, 14, 13, 12,
+    11, 10,  9,  8,
+     7,  6,  5,  4,
+     3,  2,  1,  0,
+    15, 14, 13, 12,
+    11, 10,  9,  8
+  );
+
+  const __m256i blockwiseReversed256_epi16_8 = _mm256_setr_epi8(
     14, 15, 12, 13,
     10, 11,  8,  9,
      6,  7,  4,  5,
@@ -478,79 +505,44 @@ static inline void performSSE_AVX2(const T* a, const T* b,
      2,  3,  0,  1
   );
 
-  const __m256i blockwiseReversed256_epi8_4 = _mm256_setr_epi8(
-     3,  2,  1,  0,
-     7,  6,  5,  4,
-    11, 10,  9,  8,
-    15, 14, 13, 12,
-     3,  2,  1,  0,
-     7,  6,  5,  4,
-    11, 10,  9,  8,
-    15, 14, 13, 12
-  );
-
-  // TODO:
-  const __m256i blockwiseReversed256_epi16_4 = _mm256_setr_epi8(
-     6,  7,  4,  5,
-     2,  3,  0,  1,
-    14, 15, 12, 13,
-    10, 11,  8,  9,
-     6,  7,  4,  5,
-     2,  3,  0,  1,
-    14, 15, 12, 13,
-    10, 11,  8,  9
-  );
-
   __m256i substitutionCost32[4];
   std::size_t k;
 
-  // We support 1, 2, and 4 byte objects for SSE comparison.
-  // We always process 16 entries at once, so we may need multiple fetches
-  // depending on object size.
   if (sizeof(T) <= 2) {
-    __m256i substitutionCost16LX, substitutionCost16HX;
-
     if (sizeof(T) == 1) {
       __m256i a_ = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&a[i-32]));
       __m256i b_ = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&b[j-1]));
       a_ = _mm256_shuffle_epi8(a_, reversedIdentity256_epi8);
-      a_ = _mm256_permute4x64_epi64(a_, 0b01001110); // swap hi/lo
+      a_ = _mm256_permute2x128_si256(a_, a_, 1); // swap hi/lo
 
-      // int substitutionCost = a[i-1] == b[j-1] ? -1 : 0;
-
-      // diag/diag2 will contain the following entries from the diagonal:
-      // index  [0]0 [0]1 [0]2 [0]3 [1]0 [1]1 [1]2 [1]3 ... [4]0 [4]1 [4]2 [4]3
-      // diag+i   -3   -2   -1    0   -7   -6   -5   -4 ...  -19  -18  -17  -16
-
-      // substitutionCost8 contains the comparisons for the following indices in a and b:
-      // index  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-      // a+i   -1  -2  -3  -4  -5  -6  -7  -8  -9 -10 -11 -12 -13 -14 -15 -16
-      // b+j   -1   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14
-      // in substitutionCost8X we shuffle this so that it matches up with diag/diag2
-      // (barring the offset induces by comparing i-1 against j-1)
       __m256i substitutionCost8 = _mm256_cmpeq_epi8(a_, b_);
-      __m256i substitutionCost8X = _mm256_shuffle_epi8(substitutionCost8, blockwiseReversed256_epi8_4);
-      // unpack with self so that 00 -> 00 00 and ff -> ff ff
-      substitutionCost16LX = _mm256_unpacklo_epi8(substitutionCost8X, substitutionCost8X);
-      substitutionCost16HX = _mm256_unpackhi_epi8(substitutionCost8X, substitutionCost8X);
+      __m256i substitutionCost8X = _mm256_shuffle_epi8(substitutionCost8, blockwiseReversed256_epi8_8);
+      __m128i sc8Xlo  = _mm256_extracti128_si256(substitutionCost8X, 0);
+      __m128i sc8Xhi  = _mm256_extracti128_si256(substitutionCost8X, 1);
+      substitutionCost32[0] = _mm256_cvtepi8_epi32(sc8Xlo);
+      substitutionCost32[1] = _mm256_cvtepi8_epi32(_mm_srli_si128(sc8Xlo, 8));
+      substitutionCost32[2] = _mm256_cvtepi8_epi32(sc8Xhi);
+      substitutionCost32[3] = _mm256_cvtepi8_epi32(_mm_srli_si128(sc8Xhi, 8));
     } else {
       __m256i a0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&a[i-16]));
       __m256i a1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&a[i-32]));
       __m256i b0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&b[j-1]));
       __m256i b1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&b[j+15]));
-      a0 = _mm256_shuffle_epi8(a0, reversedIdentity256_epi16);
-      a1 = _mm256_shuffle_epi8(a1, reversedIdentity256_epi16);
+      a0 = _mm256_permute2x128_si256(a0, a0, 1); // swap hi/lo
+      a1 = _mm256_permute2x128_si256(a1, a1, 1); // swap hi/lo
+      b0 = _mm256_shuffle_epi8(b0, blockwiseReversed256_epi16_8);
+      b1 = _mm256_shuffle_epi8(b1, blockwiseReversed256_epi16_8);
       __m256i substitutionCost16L = _mm256_cmpeq_epi16(a0, b0);
       __m256i substitutionCost16H = _mm256_cmpeq_epi16(a1, b1);
-      substitutionCost16LX = _mm256_shuffle_epi8(substitutionCost16L, blockwiseReversed256_epi16_4);
-      substitutionCost16HX = _mm256_shuffle_epi8(substitutionCost16H, blockwiseReversed256_epi16_4);
+      __m128i sc16Llo = _mm256_extracti128_si256(substitutionCost16L, 0);
+      __m128i sc16Lhi = _mm256_extracti128_si256(substitutionCost16L, 1);
+      __m128i sc16Hlo = _mm256_extracti128_si256(substitutionCost16H, 0);
+      __m128i sc16Hhi = _mm256_extracti128_si256(substitutionCost16H, 1);
+      substitutionCost32[0] = _mm256_cvtepi16_epi32(sc16Llo);
+      substitutionCost32[1] = _mm256_cvtepi16_epi32(sc16Lhi);
+      substitutionCost32[2] = _mm256_cvtepi16_epi32(sc16Hlo);
+      substitutionCost32[3] = _mm256_cvtepi16_epi32(sc16Hhi);
     }
-
-    substitutionCost32[0] = _mm256_unpacklo_epi16(substitutionCost16LX, substitutionCost16LX);
-    substitutionCost32[1] = _mm256_unpackhi_epi16(substitutionCost16LX, substitutionCost16LX);
-    substitutionCost32[2] = _mm256_unpacklo_epi16(substitutionCost16HX, substitutionCost16HX);
-    substitutionCost32[3] = _mm256_unpackhi_epi16(substitutionCost16HX, substitutionCost16HX);
-
   } else {
     assert(sizeof(T) == 4);
 
@@ -558,7 +550,7 @@ static inline void performSSE_AVX2(const T* a, const T* b,
       __m256i a_ = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&a[i-8-k*8]));
       __m256i b_ = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&b[j-1+k*8]));
       b_ = _mm256_shuffle_epi32(b_, 0x1b); // simple reverse
-      b_ = _mm256_permute4x64_epi64(b_, 0b01001110); // swap hi/lo
+      b_ = _mm256_permute2x128_si256(b_, b_, 1); // swap hi/lo
       substitutionCost32[k] = _mm256_cmpeq_epi32(a_, b_);
     }
   }
@@ -571,27 +563,125 @@ static inline void performSSE_AVX2(const T* a, const T* b,
     diag2_[k] = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&diag2[i-7-k*8]));
   }
 
-
-  // reminders:
-  // the arrays (diag, diag2, substitutionCost32) correspond to i:
-  // index  [0]0 [0]1 [0]2 [0]3 [1]0 [1]1 [1]2 [1]3 ... [4]0 [4]1 [4]2 [4]3
-  // i+       -3   -2   -1    0   -7   -6   -5   -4 ...  -19  -18  -17  -16
-  // so when we need to access ...[i-1], we need to align the entries
-  // in *reverse* order
-
-  // diag[i] = min(
-  //  diag2[i-1],
-  //  diag2[i],
-  //  diag[i-1] + substitutionCost
-  // ) + 1;
-  //
+#ifdef LSTSSE_DEBUG
+  for (k = 0; k < 5; ++k) {
+    std::uint32_t diag0 = _mm256_extract_epi32(diag_[k], 0);
+    std::uint32_t diag1 = _mm256_extract_epi32(diag_[k], 1);
+    std::uint32_t diag2 = _mm256_extract_epi32(diag_[k], 2);
+    std::uint32_t diag3 = _mm256_extract_epi32(diag_[k], 3);
+    std::uint32_t diag4 = _mm256_extract_epi32(diag_[k], 4);
+    std::uint32_t diag5 = _mm256_extract_epi32(diag_[k], 5);
+    std::uint32_t diag6 = _mm256_extract_epi32(diag_[k], 6);
+    std::uint32_t diag7 = _mm256_extract_epi32(diag_[k], 7);
+    assert(diag0 == diag[i-k*8-7]);
+    assert(diag1 == diag[i-k*8-6]);
+    assert(diag2 == diag[i-k*8-5]);
+    assert(diag3 == diag[i-k*8-4]);
+    assert(diag4 == diag[i-k*8-3]);
+    assert(diag5 == diag[i-k*8-2]);
+    assert(diag6 == diag[i-k*8-1]);
+    assert(diag7 == diag[i-k*8-0]);
+  }
+  for (k = 0; k < 5; ++k) {
+    std::uint32_t diag20 = _mm256_extract_epi32(diag2_[k], 0);
+    std::uint32_t diag21 = _mm256_extract_epi32(diag2_[k], 1);
+    std::uint32_t diag22 = _mm256_extract_epi32(diag2_[k], 2);
+    std::uint32_t diag23 = _mm256_extract_epi32(diag2_[k], 3);
+    std::uint32_t diag24 = _mm256_extract_epi32(diag2_[k], 4);
+    std::uint32_t diag25 = _mm256_extract_epi32(diag2_[k], 5);
+    std::uint32_t diag26 = _mm256_extract_epi32(diag2_[k], 6);
+    std::uint32_t diag27 = _mm256_extract_epi32(diag2_[k], 7);
+    assert(diag20 == diag2[i-k*8-7]);
+    assert(diag21 == diag2[i-k*8-6]);
+    assert(diag22 == diag2[i-k*8-5]);
+    assert(diag23 == diag2[i-k*8-4]);
+    assert(diag24 == diag2[i-k*8-3]);
+    assert(diag25 == diag2[i-k*8-2]);
+    assert(diag26 == diag2[i-k*8-1]);
+    assert(diag27 == diag2[i-k*8-0]);
+  }
+  
   for (k = 0; k < 4; ++k) {
-    __m256i diag2_i_m1 = _mm256_alignr_epi8(diag2_[k], diag2_[k+1], 28);
-    __m256i diag_i_m1  = _mm256_alignr_epi8(diag_ [k], diag_ [k+1], 28);
+    int sc0 = _mm256_extract_epi32(substitutionCost32[k], 0);
+    int sc1 = _mm256_extract_epi32(substitutionCost32[k], 1);
+    int sc2 = _mm256_extract_epi32(substitutionCost32[k], 2);
+    int sc3 = _mm256_extract_epi32(substitutionCost32[k], 3);
+    int sc4 = _mm256_extract_epi32(substitutionCost32[k], 4);
+    int sc5 = _mm256_extract_epi32(substitutionCost32[k], 5);
+    int sc6 = _mm256_extract_epi32(substitutionCost32[k], 6);
+    int sc7 = _mm256_extract_epi32(substitutionCost32[k], 7);
+    assert(sc0 == ((a[i-1-k*8-7] == b[j-1+k*8+7]) ? -1 : 0));
+    assert(sc1 == ((a[i-1-k*8-6] == b[j-1+k*8+6]) ? -1 : 0));
+    assert(sc2 == ((a[i-1-k*8-5] == b[j-1+k*8+5]) ? -1 : 0));
+    assert(sc3 == ((a[i-1-k*8-4] == b[j-1+k*8+4]) ? -1 : 0));
+    assert(sc4 == ((a[i-1-k*8-3] == b[j-1+k*8+3]) ? -1 : 0));
+    assert(sc5 == ((a[i-1-k*8-2] == b[j-1+k*8+2]) ? -1 : 0));
+    assert(sc6 == ((a[i-1-k*8-1] == b[j-1+k*8+1]) ? -1 : 0));
+    assert(sc7 == ((a[i-1-k*8-0] == b[j-1+k*8+0]) ? -1 : 0));
+  }
+#endif // LSTSSE_DEBUG
+
+  for (k = 0; k < 4; ++k) {
+    __m256i diag2_i_m1 = _mm256_alignr_epi32_7(diag2_[k], diag2_[k+1]);
+    __m256i diag_i_m1  = _mm256_alignr_epi32_7(diag_ [k], diag_ [k+1]);
 
     __m256i result3 = _mm256_add_epi32(diag_i_m1,  substitutionCost32[k]);
     __m256i min = _mm256_min_epi32(_mm256_min_epi32(diag2_i_m1, diag2_[k]), result3);
     min = _mm256_add_epi32(min, one256_epi32);
+
+#ifdef LSTSSE_DEBUG
+    std::uint32_t diag_i_m10 = _mm256_extract_epi32(diag_i_m1, 0);
+    std::uint32_t diag_i_m11 = _mm256_extract_epi32(diag_i_m1, 1);
+    std::uint32_t diag_i_m12 = _mm256_extract_epi32(diag_i_m1, 2);
+    std::uint32_t diag_i_m13 = _mm256_extract_epi32(diag_i_m1, 3);
+    std::uint32_t diag_i_m14 = _mm256_extract_epi32(diag_i_m1, 4);
+    std::uint32_t diag_i_m15 = _mm256_extract_epi32(diag_i_m1, 5);
+    std::uint32_t diag_i_m16 = _mm256_extract_epi32(diag_i_m1, 6);
+    std::uint32_t diag_i_m17 = _mm256_extract_epi32(diag_i_m1, 7);
+    assert(diag_i_m10 == diag[i-k*8-8]);
+    assert(diag_i_m11 == diag[i-k*8-7]);
+    assert(diag_i_m12 == diag[i-k*8-6]);
+    assert(diag_i_m13 == diag[i-k*8-5]);
+    assert(diag_i_m14 == diag[i-k*8-4]);
+    assert(diag_i_m15 == diag[i-k*8-3]);
+    assert(diag_i_m16 == diag[i-k*8-2]);
+    assert(diag_i_m17 == diag[i-k*8-1]);
+    
+    std::uint32_t diag2_i_m10 = _mm256_extract_epi32(diag2_i_m1, 0);
+    std::uint32_t diag2_i_m11 = _mm256_extract_epi32(diag2_i_m1, 1);
+    std::uint32_t diag2_i_m12 = _mm256_extract_epi32(diag2_i_m1, 2);
+    std::uint32_t diag2_i_m13 = _mm256_extract_epi32(diag2_i_m1, 3);
+    std::uint32_t diag2_i_m14 = _mm256_extract_epi32(diag2_i_m1, 4);
+    std::uint32_t diag2_i_m15 = _mm256_extract_epi32(diag2_i_m1, 5);
+    std::uint32_t diag2_i_m16 = _mm256_extract_epi32(diag2_i_m1, 6);
+    std::uint32_t diag2_i_m17 = _mm256_extract_epi32(diag2_i_m1, 7);
+    assert(diag2_i_m10 == diag2[i-k*8-8]);
+    assert(diag2_i_m11 == diag2[i-k*8-7]);
+    assert(diag2_i_m12 == diag2[i-k*8-6]);
+    assert(diag2_i_m13 == diag2[i-k*8-5]);
+    assert(diag2_i_m14 == diag2[i-k*8-4]);
+    assert(diag2_i_m15 == diag2[i-k*8-3]);
+    assert(diag2_i_m16 == diag2[i-k*8-2]);
+    assert(diag2_i_m17 == diag2[i-k*8-1]);
+    
+    std::uint32_t result30 = _mm256_extract_epi32(result3, 0);
+    std::uint32_t result31 = _mm256_extract_epi32(result3, 1);
+    std::uint32_t result32 = _mm256_extract_epi32(result3, 2);
+    std::uint32_t result33 = _mm256_extract_epi32(result3, 3);
+    std::uint32_t result34 = _mm256_extract_epi32(result3, 4);
+    std::uint32_t result35 = _mm256_extract_epi32(result3, 5);
+    std::uint32_t result36 = _mm256_extract_epi32(result3, 6);
+    std::uint32_t result37 = _mm256_extract_epi32(result3, 7);
+    
+    assert(result30 == diag[i-1-k*8-7] + ((a[i-1-k*8-7] == b[j-1+k*8+7]) ? -1 : 0));
+    assert(result31 == diag[i-1-k*8-6] + ((a[i-1-k*8-6] == b[j-1+k*8+6]) ? -1 : 0));
+    assert(result32 == diag[i-1-k*8-5] + ((a[i-1-k*8-5] == b[j-1+k*8+5]) ? -1 : 0));
+    assert(result33 == diag[i-1-k*8-4] + ((a[i-1-k*8-4] == b[j-1+k*8+4]) ? -1 : 0));
+    assert(result34 == diag[i-1-k*8-3] + ((a[i-1-k*8-3] == b[j-1+k*8+3]) ? -1 : 0));
+    assert(result35 == diag[i-1-k*8-2] + ((a[i-1-k*8-2] == b[j-1+k*8+2]) ? -1 : 0));
+    assert(result36 == diag[i-1-k*8-1] + ((a[i-1-k*8-1] == b[j-1+k*8+1]) ? -1 : 0));
+    assert(result37 == diag[i-1-k*8-0] + ((a[i-1-k*8-0] == b[j-1+k*8+0]) ? -1 : 0));
+#endif // LSTSSE_DEBUG
 
     _mm256_storeu_si256(reinterpret_cast<__m256i*>(&diag[i-k*8-7]), min);
   }
@@ -600,7 +690,6 @@ static inline void performSSE_AVX2(const T* a, const T* b,
   i -= 32;
 }
 #endif // __AVX2__
-
 
 };
 

@@ -59,7 +59,6 @@ void levenshteinFileExpect(const std::string& a, const std::string& b, std::uint
 }
 
 int main() {
-/*
   levenshteinStringExpect<char>("Saturday", "Sunday", 3);
   levenshteinStringExpect<char>("Sitting", "Kittens", 3);
   levenshteinStringExpect<char>("A somewhat longer string", "Here is a maybe even longer string!", 17);
@@ -116,10 +115,8 @@ int main() {
     {1, 3, 5, 7, 9, 11, 13, 15, 17, 19},
     5);
   
-  */
   levenshteinFileExpect<char>("test/assets/loremipsum_1-16k.utf8", "test/assets/loremipsum_2-16k.utf8", 12453);
   levenshteinFileExpect<short>("test/assets/loremipsum_1-16k.utf16", "test/assets/loremipsum_2-16k.utf16", 12450);
-  /*
   levenshteinFileExpect<char>("test/assets/loremipsum_1-64k.utf8", "test/assets/loremipsum_2-64k.utf8", 49618);
   levenshteinFileExpect<short>("test/assets/loremipsum_1-64k.utf16", "test/assets/loremipsum_2-64k.utf16", 49607);
 
@@ -130,7 +127,6 @@ int main() {
 
   levenshteinFileExpect<std::uint32_t>("test/assets/random1024_1", "test/assets/random1024_2", 256);
   levenshteinFileExpect<std::uint32_t>("test/assets/random8192_1", "test/assets/random8192_2", 2048);
-  */
   // levenshteinFileExpect<char>("test/assets/loremipsum_1.utf8", "test/assets/loremipsum_2.utf8", 218919);
   return 0;
 }
