@@ -12,6 +12,7 @@
 #include <iterator>
 #include <cstdint>
 #include <cassert>
+#include <limits>
 #ifdef __SSSE3__
 #include <tmmintrin.h>
 #endif
