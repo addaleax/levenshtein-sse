@@ -143,6 +143,11 @@ template <typename T>
 class AlignmentAllocator<T, 1> : public std::allocator<T> {
 public:
   static constexpr bool usesMMAlloc = false;
+
+  template <typename T2>
+  struct rebind {
+    typedef AlignmentAllocator<T2, 1> other;
+  };
 };
 
 #ifdef __SSSE3__
